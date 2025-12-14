@@ -1,0 +1,87 @@
+name: Terraform Auth0 Deployment
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT_TYPE:
+        required: true
+        type: string
+      TERRAFORM_VERSION:
+        required: true
+        type: string
+      TF_WORK_DIR:
+        required: true
+        type: string
+      TF_VAR_FILE:
+        required: true
+        type: string
+
+    secrets:
+      AUTH0_CLIENT_SECRET:
+        required: true
+
+jobs:
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.ENVIRONMENT_TYPE }}
+    outputs:
+      plan_artifact_name: tfplan-${{ inputs.ENVIRONMENT_TYPE }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .
+          token: ${{ github.token }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: |
+          terraform plan -no-color -input=false -out=tfplan \
+            -var-file="${{ github.workspace }}/terraform/vars/${{ inputs.TF_VAR_FILE }}" \
+            -var "auth0_domain=${{ vars.AUTH0_DOMAIN }}" \
+            -var "auth0_client_id=${{ vars.AUTH0_CLIENT_ID }}" \
+            -var "auth0_client_secret=${{ secrets.AUTH0_CLIENT_SECRET }}" \
+            | tee plan.log
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ inputs.ENVIRONMENT_TYPE }}
+          path: ${{ inputs.TF_WORK_DIR }}/tfplan
+
+
+  apply:
+    name: Terraform Apply
+    needs: plan
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.ENVIRONMENT_TYPE }} # triggers approval if configured
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ inputs.ENVIRONMENT_TYPE }}
+          path: ${{ inputs.TF_WORK_DIR }}
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform init 
+
+      - name: Terraform Apply Plan
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform apply tfplan
