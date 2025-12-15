@@ -70,6 +70,8 @@ jobs:
     environment:
       name: ${{ inputs.ENVIRONMENT_TYPE }} # Here we provide the name of the environment. If we have rules defined on GitHub, we can require approval before deploying to specific environment.
     steps:
+      - uses: actions/checkout@v4 # We checkout the source code from the repository first.
+
       - name: Setup Terraform # We have to setup Terraform using the specific version.
         uses: hashicorp/setup-terraform@v3
 
