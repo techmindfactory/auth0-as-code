@@ -1,0 +1,90 @@
+name: Terraform Auth0 Deployment
+
+# Here we can pass input parameters from the calling workflow which is located in the auth0-ci-cd.yml file:
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT_TYPE:
+        required: true
+        type: string
+      TERRAFORM_VERSION:
+        required: true
+        type: string
+      TF_WORK_DIR:
+        required: true
+        type: string
+      TF_VAR_FILE:
+        required: true
+        type: string
+
+    secrets:
+      AUTH0_CLIENT_SECRET:
+        required: true
+
+# Here we define the jobs that will be executed by this reusable workflow:
+jobs:
+  plan: # First job called "plan" is responsible for creating Terraform plan with all the changes that should be applied to Auth0 tenant on specific environment.
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.ENVIRONMENT_TYPE }} # Here we provide the name of the environment, like dev, test or prod.
+    outputs:
+      plan_artifact_name: tfplan-${{ inputs.ENVIRONMENT_TYPE }} #Here we define the name of the artifact that will contain generated Terraform plan.
+
+# Here we define the steps (also called actions) that will be executed by the "plan" job:
+    steps:
+      - uses: actions/checkout@v4 # We checkout the source code from the repository first.
+        with:
+          path: .
+          token: ${{ github.token }}
+
+      - name: Setup Terraform # We have to setup Terraform using the specific version.
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.TERRAFORM_VERSION }}
+
+      - name: Terraform Init # Next, we have to initialize Terraform.
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform init
+
+      - name: Terraform Plan # Next, we generate Terraform plan.
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        # Below we execute "plan" command and we pass tfvars file location and name along with the Auth0 domain, Client ID, and Client secret:
+        run: |
+          terraform plan -no-color -input=false -out=tfplan \
+            -var-file="${{ github.workspace }}/terraform/vars/${{ inputs.TF_VAR_FILE }}" \
+            -var "auth0_domain=${{ vars.AUTH0_DOMAIN }}" \
+            -var "auth0_client_id=${{ vars.AUTH0_CLIENT_ID }}" \
+            -var "auth0_client_secret=${{ secrets.AUTH0_CLIENT_SECRET }}"
+      # In the last action we upload generated Terraform plan:
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ inputs.ENVIRONMENT_TYPE }}
+          path: ${{ inputs.TF_WORK_DIR }}/tfplan
+
+
+  apply: # This second job is responsible for applying changes using the previously generated plan.
+    name: Terraform Apply
+    needs: plan
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.ENVIRONMENT_TYPE }} # Here we provide the name of the environment. If we have rules defined on GitHub, we can require approval before deploying to specific environment.
+    steps:
+      - uses: actions/checkout@v4 # We checkout the source code from the repository first.
+
+      - name: Setup Terraform # We have to setup Terraform using the specific version.
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Download Terraform Plan # This step downloads the previously generated Terraform plan.
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ inputs.ENVIRONMENT_TYPE }}
+          path: ${{ inputs.TF_WORK_DIR }}
+
+      - name: Terraform Init # This step initializes Terraform
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform init 
+
+      - name: Terraform Apply Plan # This step applies changes using the "apply" command and the previously generated Terraform plan.
+        working-directory: ${{ inputs.TF_WORK_DIR }}
+        run: terraform apply tfplan

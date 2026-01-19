@@ -1,0 +1,49 @@
+name: Auth0 Configuration Deployment
+
+# This workflow will be triggered when there are new changes pushed to main branch. We can also trigger it manually:
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# There are three jobs declared. Each of them is responsible for deploying changes to dev, test, and production Auth0 tenant:
+jobs:
+  deploy-dev: # This job will deploy to dev Auth0 tenant.
+    permissions:
+      contents: read # Allows the workflow to read the repository contents.
+    uses: ./.github/workflows/terraform-reusable.yml # Uses reusable workflow template called "terraform-reusable.yml" stored in the same workflows folder.
+    with:
+      ENVIRONMENT_TYPE: dev # Here we are providing the type of environmnet, in this case it is dev.
+      TERRAFORM_VERSION: ${{ vars.TERRAFORM_VERSION }} # Here we define the Terraform version that will be used. It is defined in our source code repository environment variables on GitHub.
+      TF_WORK_DIR: "terraform" # Here we define the working directory for Terraform.
+      TF_VAR_FILE: dev.tfvars # Here we provide the name of the tfvars file that will be used with Terraform.
+    secrets:
+      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }} # Here we provide Auth0 secret used as one of the parameters by Auth0 Terraform Provider.
+
+# Below we have two more jobs responsible for deployments to test and production environments. Uncomment them if you want to deploy changes to test and prod as well:
+  deploy-test: # This job will deploy to test Auth0 tenant.
+    needs: deploy-dev
+    permissions:
+      contents: read # Allows the workflow to read the repository contents
+    uses: ./.github/workflows/terraform-reusable.yml
+    with:
+      ENVIRONMENT_TYPE: test
+      TERRAFORM_VERSION: ${{ vars.TERRAFORM_VERSION }}
+      TF_WORK_DIR: "terraform"
+      TF_VAR_FILE: test.tfvars
+    secrets:
+      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
+
+
+  deploy-prod: # This job will deploy to production Auth0 tenant.
+    needs: deploy-test
+    permissions:
+      contents: read # Allows the workflow to read the repository contents
+    uses: ./.github/workflows/terraform-reusable.yml
+    with:
+      ENVIRONMENT_TYPE: prod
+      TERRAFORM_VERSION: ${{ vars.TERRAFORM_VERSION }}
+      TF_WORK_DIR: "terraform"
+      TF_VAR_FILE: prod.tfvars
+    secrets:
+      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
